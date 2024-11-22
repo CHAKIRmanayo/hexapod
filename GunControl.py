@@ -1,76 +1,67 @@
 import numpy as np
+import numpy as np
+from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+class BONE():
+  def __init__(self, staticOffset, length, start):
+    self.offset = staticOffset #offset of the radius vector of the bone[i] relative to the motor[i-1]
+    self.start = start
+    self.length = length
 
-def set_fixed_aspect_3d(ax, aspect=1):
-    limits = np.array([
-        ax.get_xlim3d(),
-        ax.get_ylim3d(),
-        ax.get_zlim3d()
-    ])
-    span = limits[:, 1] - limits[:, 0]
-    max_range = max(span) / 2.0
 
-    # Центрируем график
-    centers = np.mean(limits, axis=1)
-    ax.set_xlim3d([centers[0] - max_range, centers[0] + max_range])
-    ax.set_ylim3d([centers[1] - max_range, centers[1] + max_range])
-    ax.set_zlim3d([centers[2] - max_range, centers[2] + max_range])
+class JOINT():
+  def __init__(self, staticRotate, position=0, angle=0):
+    self.rotate = staticRotate #angle of rotation of the motor[i] relative to the radius vector of the bone[i-1]
+    self.positon = position
+    self.angle = angle
 
-def calculateJoints(motorId):
-    theta1, theta2, theta3 = motors[motorId]['angles']
-    theta1-=np.pi/2
-    rotation_z = np.array([
-        [np.cos(theta1), -np.sin(theta1), 0],
-        [np.sin(theta1), np.cos(theta1), 0],
-        [0, 0, 1]
-    ])
-    rotation_x = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta2), -np.sin(theta2)],
-        [0, np.sin(theta2), np.cos(theta2)]
-    ])
-    rotation_x2 = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta3), -np.sin(theta3)],
-        [0, np.sin(theta3), np.cos(theta3)]
-    ])
-    T1 = rotation_z @ rotation_x
-    T2 = rotation_x2
+  def setAngle(self, angle):
+    self.angle = angle
 
-    joint0 = np.array(motors[motorId]['position'])
-    joint1 = joint0 - [0, 0, link_lengths[0]]
-    joint2 = joint1 + T1 @ np.array([0, link_lengths[1],0])
-    joint3 = joint2 + T1 @ T2 @ np.array([0, link_lengths[2], 0])
-    return joint0, joint1, joint2, joint3
-    
 
-def hexapod_model(center_mass, motors):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(*center_mass, color='red', label='Center of Mass', s=50)
+class LINK():
+  def __init__(self, joint=None, bone = None):
+    self.joint = joint
+    self.bone = bone
 
-    for id in motors:
-        joint0, joint1, joint2, joint3 = calculateJoints(id)
-        ax.plot([joint0[0], joint1[0]], [joint0[1], joint1[1]], [joint0[2], joint1[2]], color='blue')
-        ax.plot([joint1[0], joint2[0]], [joint1[1], joint2[1]], [joint1[2], joint2[2]], color='green')
-        ax.plot([joint2[0], joint3[0]], [joint2[1], joint3[1]], [joint2[2], joint3[2]], color='purple')
-        #print(joint3)
-        ax.scatter(*joint3, color='black', s=20)
+  def setJoint(self, rot, pos=0, ang=0):
+    self.joint = JOINT(rot, pos, ang)
+  
+  def setBone(self, rot, len, start=0):
+    self.bone = BONE(rot, len, start)
 
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    set_fixed_aspect_3d(ax)
-    ax.legend()
-    ax.set_title("Hexapod Model")
-    plt.show()
 
-# Пример входных данных
-center_mass = np.array([0, 0, 0])
+class ARMATURE:
+  def __init__(self):
+    self.start = 0
+    self.end = 0
+    self.joints = []
+    self.bones =  []
+    self.matrix = [] #transition matrix 
 
-alpha = np.pi/12
+  def setJoint(self, relativeRotate, position):
+    self.joints.add(JOINT(relativeRotate, ))
+  
+  def addBone(self, relativeRotate, length):
+    self.bones.add(BONE(relativeRotate, length, self.start))
+    self.start = self.joints[-1]
+  
+  
+
+  
+
+class CalculateArmature:
+  def __init__(self, armature):
+    self.arm = armature
+
+  def calc_direct_kinematics(self):
+    position = np.array()
+  
+  def calc_inverse_kinematics(self):
+
+    return 
 motors = {
     'L1': {
             'angles' : [np.pi, np.pi/12, -np.pi/2],
@@ -97,13 +88,14 @@ motors = {
             'position': [1, -3, 0]
           }
 }
-link_lengths = [1, 3, 3]
+# link_lengths = [3, 3, 3]
 
-hexapod_model(center_mass, motors)
+# hexapod_model(center_mass, motors)
 
 # ОЗК
-
+   
 ledCoordinates = {
+   
     'L1': {
             'position': [-1, 3, 0],
             'endPosition': [-4.67423461,  3,  -3.12132034]
@@ -131,35 +123,116 @@ ledCoordinates = {
 }
 
 
-def inverseKinematics(ledCoordinates1, link_lengths1):
+link_lengths = [1, 3, 3]
 
-    L1, L2, L3 = link_lengths1
-    for id in ledCoordinates1:
-      x0, y0, z0 = ledCoordinates1[id]['position']
-      x, y, z = ledCoordinates1[id]['endPosition']
+# Траектория движения конечной точки
+def generate_trajectory():
+    x_vals = []
+    y_vals = []
+    z_vals = []
+    fi = np.pi/2
+    for t in np.arange(0, np.pi * 2, 0.1):
+        x_prime = np.sign(np.cos(t)) * (np.sqrt(np.abs(3 * np.cos(t))))
+        y = x_prime * np.cos(fi)
+        x = x_prime * np.sin(fi)
+        z = np.power(0.5 * (np.sin(t) + 1), 3)
+        x_vals.append(x)
+        y_vals.append(y)
+        z_vals.append(z)
 
-      thet1 = np.atan2(y - y0, x - x0)
-  
-    # Проекция на плоскость XZ
-      x_prime = np.sqrt((x - x0)**2 + (y - y0)**2)
-      
-      z_prime = z0 - z - L1
-      
-    # Расстояние до целевой точки
-      d = np.sqrt(x_prime**2 + z_prime**2)
-      
-    # Проверка досягаемости
-      if d > L2 + L3:
-          raise ValueError("Целевая точка недостижима")
-    
-    # Угол второго сочленения
-      thet2_part1 = np.atan2(x_prime, z_prime)
-      thet2_part2 = np.acos((L2**2 + d**2 - L3**2) / (2 * L2 * d))
-      thet2 = thet2_part1 + thet2_part2 - np.pi/2
-    
-    # Угол третьего сочленения
-      thet3 = np.pi - np.acos((L3**2 + L2**2 - d**2) / (2 * L3 * L2))
-    
-      print(thet1, thet2, thet3)
+    return np.array(x_vals), np.array(y_vals), np.array(z_vals)
 
-inverseKinematics(ledCoordinates, link_lengths)
+# Обратная кинематика
+def inverse_kinematics_single(x1, y1, z1, base_position, link_lengths):
+    L1, L2, L3 = link_lengths
+    x0, y0, z0 = base_position
+
+    theta1 = np.arctan2(y1 - y0, x1 - x0)
+    x_prime = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+    z_prime = z0 - z1 - L1
+    d = np.sqrt(x_prime**2 + z_prime**2)
+
+    if d > L2 + L3:
+        raise ValueError("Target point is unreachable")
+
+    theta2_part1 = np.arctan2(x_prime, z_prime)
+    theta2_part2 = np.arccos((L2**2 + d**2 - L3**2) / (2 * L2 * d))
+    theta2 = theta2_part1 + theta2_part2 - np.pi / 2
+
+    theta3 = np.pi - np.arccos((L3**2 + L2**2 - d**2) / (2 * L3 * L2))
+    return theta1, theta2, -theta3
+
+# Прямая кинематика
+def forward_kinematics(theta1, theta2, theta3, base_position, link_lengths):
+    L1, L2, L3 = link_lengths
+    theta1-=np.pi/2
+    rotation_z = np.array([
+        [np.cos(theta1), -np.sin(theta1), 0],
+        [np.sin(theta1), np.cos(theta1), 0],
+        [0, 0, 1]
+    ])
+    rotation_x = np.array([
+        [1, 0, 0],
+        [0, np.cos(theta2), -np.sin(theta2)],
+        [0, np.sin(theta2), np.cos(theta2)]
+    ])
+    rotation_x2 = np.array([
+        [1, 0, 0],
+        [0, np.cos(theta3), -np.sin(theta3)],
+        [0, np.sin(theta3), np.cos(theta3)]
+    ])
+    T1 = rotation_z @ rotation_x
+    T2 = rotation_x2
+
+    joint0 = np.array(base_position)
+    joint1 = joint0 + np.array([0, 0, -L1])
+    joint2 = joint1 + T1 @ np.array([0, L2, 0])
+    joint3 = joint2 + T1 @ T2 @ np.array([0, L3, 0])
+
+    return joint0, joint1, joint2, joint3
+
+# Анимация движения
+def animate_leg(base_position, trajectory, link_lengths):
+    x_vals, y_vals, z_vals = trajectory
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-10, 10)
+    ax.set_zlim(-10, 10)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    # Линии и точки
+    line, = ax.plot([], [], [], 'o-', lw=2)
+    target, = ax.plot([], [], [], 'ro')  # Точка цели
+
+    def update(frame):
+        x, y, z = x_vals[frame] + 4.67423461, y_vals[frame] + 3, z_vals[frame] + -3.12132034
+        theta1, theta2, theta3 = inverse_kinematics_single(x, y, z, base_position, link_lengths)
+        joints = forward_kinematics(theta1, theta2, theta3, base_position, link_lengths)
+
+        joint_x = [j[0] for j in joints]
+        joint_y = [j[1] for j in joints]
+        joint_z = [j[2] for j in joints]
+
+        line.set_data(joint_x, joint_y)
+        line.set_3d_properties(joint_z)
+
+        target.set_data([x], [y])
+        target.set_3d_properties([z])
+
+        return line, target
+
+    ani = FuncAnimation(fig, update, frames=len(x_vals), interval=50, blit=False, repeat=True)
+    plt.show()
+
+# Базовая позиция ноги
+base_position = [1, 3, 0]
+
+
+# Генерация траектории
+trajectory = generate_trajectory()
+
+# Анимация
+animate_leg(base_position, trajectory, link_lengths)
