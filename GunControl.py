@@ -62,6 +62,7 @@ class CalculateArmature:
   def calc_inverse_kinematics(self):
 
     return 
+  
 motors = {
     'L1': {
             'angles' : [np.pi, np.pi/12, -np.pi/2],
@@ -130,7 +131,7 @@ def generate_trajectory():
     x_vals = []
     y_vals = []
     z_vals = []
-    fi = np.pi/2
+    fi = 0
     for t in np.arange(0, np.pi * 2, 0.1):
         x_prime = np.sign(np.cos(t)) * (np.sqrt(np.abs(3 * np.cos(t))))
         y = x_prime * np.cos(fi)
@@ -192,7 +193,7 @@ def forward_kinematics(theta1, theta2, theta3, base_position, link_lengths):
     return joint0, joint1, joint2, joint3
 
 # Анимация движения
-def animate_leg(base_position, trajectory, link_lengths):
+def animate_leg(trajectory, link_lengths):
     x_vals, y_vals, z_vals = trajectory
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -203,12 +204,22 @@ def animate_leg(base_position, trajectory, link_lengths):
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
 
-    # Линии и точки
-    line, = ax.plot([], [], [], 'o-', lw=2)
-    target, = ax.plot([], [], [], 'ro')  # Точка цели
+    lines = []
+    targets = []
+
+    for _ in range(6):
+        line, = ax.plot([], [], [], 'o-', lw=2)
+        target, = ax.plot([], [], [], 'ro')
+        lines.append(line)
+        targets.append(target)
 
     def update(frame):
-        x, y, z = x_vals[frame] + 4.67423461, y_vals[frame] + 3, z_vals[frame] + -3.12132034
+      i=0
+      for id in ledCoordinates:
+        
+        base_position = ledCoordinates[id]['position']
+        x0, y0, z0 = ledCoordinates[id]['endPosition']
+        x, y, z = x_vals[frame] + x0, y_vals[frame] + y0, z_vals[frame] + z0
         theta1, theta2, theta3 = inverse_kinematics_single(x, y, z, base_position, link_lengths)
         joints = forward_kinematics(theta1, theta2, theta3, base_position, link_lengths)
 
@@ -216,23 +227,24 @@ def animate_leg(base_position, trajectory, link_lengths):
         joint_y = [j[1] for j in joints]
         joint_z = [j[2] for j in joints]
 
-        line.set_data(joint_x, joint_y)
-        line.set_3d_properties(joint_z)
+        lines[i].set_data(joint_x, joint_y)
+        lines[i].set_3d_properties(joint_z)
 
-        target.set_data([x], [y])
-        target.set_3d_properties([z])
+        targets[i].set_data([x], [y])
+        targets[i].set_3d_properties([z])
+        i+=1
 
-        return line, target
+      return lines, targets
 
     ani = FuncAnimation(fig, update, frames=len(x_vals), interval=50, blit=False, repeat=True)
     plt.show()
 
 # Базовая позиция ноги
-base_position = [1, 3, 0]
+
 
 
 # Генерация траектории
 trajectory = generate_trajectory()
 
 # Анимация
-animate_leg(base_position, trajectory, link_lengths)
+animate_leg(trajectory, link_lengths)
