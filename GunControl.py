@@ -1,200 +1,141 @@
 import numpy as np
-import numpy as np
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import time
+start_time = time.time()
 
-class BONE():
-  def __init__(self, staticOffset, length, start):
-    self.offset = staticOffset #offset of the radius vector of the bone[i] relative to the motor[i-1]
-    self.start = start
-    self.length = length
+def mix(a,b,t):
+    return a*t+ b*(1-t)
 
 
-class JOINT():
-  def __init__(self, staticRotate, position=0, angle=0):
-    self.rotate = staticRotate #angle of rotation of the motor[i] relative to the radius vector of the bone[i-1]
-    self.positon = position
-    self.angle = angle
+def calculateTrajectory():
+    T= 3
+    dt = 0.01
+    x_arr = []
+    z_arr = []
+    a = 1
+    b = a/0.9
+    fi = np.arccos(0.8)
+    for t in np.arange(0, T, dt):
+        if 0<=t<T/2:
+            aa = (t - T/4) / (T/4)
+            x = a*aa
+            z = 0
+            print('xt' , aa)
+        else:
+            aa = (t - T/2) / (T/2)
+            f = mix(2*np.pi - fi, 3*np.pi + fi, aa)
+            x = -b * np.sign(np.cos(f)) * (np.sqrt(np.abs(np.cos(f))))
+            z = np.power(0.5 * (np.sin(f) + 1), 3)
+            print(f-2.*np.pi)
+        
+        x_arr.append(x)
+        z_arr.append(z)
+    plt.plot(x_arr,z_arr)
+    plt.show()
+        
+def calcT(t):
+    T= 3
+    a = np.sqrt(1)
+    b = a/0.9
+    fi = np.arccos(0.8)
+    if 0<=t<T/2:
+        aa = (t - T/4) / (T/4)
+        x = a*aa
+        z = 0
+    else:
+        aa = (t - T/2) / (T/2)
+        f = mix(2*np.pi - fi, 3*np.pi + fi, aa)
+        x = -b * np.sign(np.cos(f)) * (np.sqrt(np.abs(np.cos(f))))
+        z = np.power(0.5 * (np.sin(f) + 1), 3)
+    return x,z
 
-  def setAngle(self, angle):
-    self.angle = angle
+class LEG():
+    def __init__(self, link_lengths, relative_angle_leg_basis, pos_start_zero, pos_end_zero, offset_time=0, angle_trajectory=0):
+        self.relative_angle_leg_basis = relative_angle_leg_basis
+        self.link_lengths = link_lengths
+        self.pos_start_zero = pos_start_zero
+        self.pos_end_zero = pos_end_zero
+        self.offset_time = offset_time
+        self.angle_trajectory = angle_trajectory
+        self.thetas = np.zeros(3)
+        self.joints = np.zeros(4)
+        self.inverse_kinematics(pos_start_zero, pos_end_zero)
+        self.forward_kinematics()
+
+    def generate_trajectory(self, time):
+        t = time + self.offset_time
+        tau, norm = calcT(t)
+        fi = self.angle_trajectory
+        x0, y0, z0 = self.pos_end_zero
+        y = y0 + tau * np.sin(fi)
+        x = x0 + tau * np.cos(fi) 
+        z = z0 + norm
+        self.joints[-1] = np.array([x,y,z])
+        print(self.joints[-1])
+    
+    def inverse_kinematics(self, start = None, end = None):
+        L1, L2, L3 = self.link_lengths
+        x0, y0, z0 = start or self.joints[0]
+        x1, y1, z1 = end or self.joints[-1]
+
+        theta1 = np.arctan2(y1-y0, x1-x0) + self.relative_angle_leg_basis
+        x_prime = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+        z_prime = z0 - z1 - L1
+        d = np.sqrt(x_prime**2 + z_prime**2)
+
+        if d > L2 + L3:
+            raise ValueError("Target point is unreachable")
+    
+        theta2_part1 = np.arctan2(x_prime, z_prime)
+        theta2_part2 = np.arccos((L2**2 + d**2 - L3**2) / (2 * L2 * d))
+        theta2 = theta2_part1 + theta2_part2 - np.pi / 2
+        theta3 = np.arccos((L3**2 + L2**2 - d**2) / (2 * L3 * L2)) - np.pi
+        self.thetas = [theta1, theta2, theta3]
+        
+    
+    def forward_kinematics(self):
+        L1, L2, L3 = self.link_lengths
+        t1, t2, t3 = self.thetas
+
+        rotation_z = np.array([
+            [np.cos(t1), -np.sin(t1), 0],
+            [np.sin(t1), np.cos(t1), 0],
+            [0, 0, 1]
+        ])
+        rotation_x = np.array([
+            [1, 0, 0],
+            [0, np.cos(t2), -np.sin(t2)],
+            [0, np.sin(t2), np.cos(t2)]
+        ])
+        rotation_x2 = np.array([
+            [1, 0, 0],
+            [0, np.cos(t3), -np.sin(t3)],
+            [0, np.sin(t3), np.cos(t3)]
+        ])
+        T1 = rotation_z @ rotation_x
+        T2 = rotation_x2
+
+        joint0 = np.array(self.pos_start_zero)
+        joint1 = joint0 + np.array([0, 0, -L1])
+        joint2 = joint1 + T1 @ np.array([0, L2, 0])
+        joint3 = joint2 + T1 @ T2 @ np.array([0, L3, 0])
+        self.joints = [joint0, joint1, joint2, joint3]
 
 
-class LINK():
-  def __init__(self, joint=None, bone = None):
-    self.joint = joint
-    self.bone = bone
-
-  def setJoint(self, rot, pos=0, ang=0):
-    self.joint = JOINT(rot, pos, ang)
-  
-  def setBone(self, rot, len, start=0):
-    self.bone = BONE(rot, len, start)
 
 
-class ARMATURE:
-  def __init__(self):
-    self.start = 0
-    self.end = 0
-    self.joints = []
-    self.bones =  []
-    self.matrix = [] #transition matrix 
 
-  def setJoint(self, relativeRotate, position):
-    self.joints.add(JOINT(relativeRotate, ))
-  
-  def addBone(self, relativeRotate, length):
-    self.bones.add(BONE(relativeRotate, length, self.start))
-    self.start = self.joints[-1]
-  
-  
-
-  
-
-class CalculateArmature:
-  def __init__(self, armature):
-    self.arm = armature
-
-  def calc_direct_kinematics(self):
-    position = np.array()
-  
-  def calc_inverse_kinematics(self):
-
-    return 
-  
-motors = {
-    'L1': {
-            'angles' : [np.pi, np.pi/12, -np.pi/2],
-            'position': [-1, 3, 0]
-          },
-    'L2': {
-            'angles' : [np.pi, np.pi/12, -np.pi/2],
-            'position': [-2, 0, 0]
-          },
-    'L3': {
-            'angles' : [np.pi, np.pi/12, -np.pi/2],
-            'position': [-1, -3, 0]
-          },
-    'R1': {
-            'angles' : [0, np.pi/12, -np.pi/2],
-            'position': [1, 3, 0]
-          },
-    'R2': {
-            'angles' : [0, np.pi/12, -np.pi/2],
-            'position': [2, 0, 0]
-          },
-    'R3': {
-            'angles' : [0, np.pi/12, -np.pi/2],
-            'position': [1, -3, 0]
-          }
-}
-# link_lengths = [3, 3, 3]
-
-# hexapod_model(center_mass, motors)
-
-# ОЗК
-   
-ledCoordinates = {
-   
-    'L1': {
-            'position': [-1, 3, 0],
-            'endPosition': [-4.67423461,  3,  -3.12132034]
-          },
-    'L2': {
-            'position': [-2, 0, 0],
-            'endPosition': [-5.67423461,  0, -3.12132034]
-          },
-    'L3': {
-            'position': [-1, -3, 0],
-            'endPosition': [-4.67423461, -3,  -3.12132034]
-          },
-    'R1': {
-            'position': [1, 3, 0],
-            'endPosition': [ 4.67423461,  3,  -3.12132034]
-          },
-    'R2': {
-            'position': [2, 0, 0],
-            'endPosition': [ 5.67423461,  0, -3.12132034]
-          },
-    'R3': {
-            'position': [1, -3, 0],
-            'endPosition': [ 4.67423461, -3,  -3.12132034]
-          }
-}
+##----------------------------------------------------------------------------------------------------------------------##
+Period = 3
+halfPeriod = Period/2
+linkLength = [1,3,3]
+r_angle_relative = np.radians(-90)
+l_angle_relative = np.radians(-90)
+angle_trajektory = np.radians(90)
 
 
-link_lengths = [1, 3, 3]
-
-# Траектория движения конечной точки
-def generate_trajectory():
-    x_vals = []
-    y_vals = []
-    z_vals = []
-    fi = 0
-    for t in np.arange(0, np.pi * 2, 0.1):
-        x_prime = np.sign(np.cos(t)) * (np.sqrt(np.abs(3 * np.cos(t))))
-        y = x_prime * np.cos(fi)
-        x = x_prime * np.sin(fi)
-        z = np.power(0.5 * (np.sin(t) + 1), 3)
-        x_vals.append(x)
-        y_vals.append(y)
-        z_vals.append(z)
-
-    return np.array(x_vals), np.array(y_vals), np.array(z_vals)
-
-# Обратная кинематика
-def inverse_kinematics_single(x1, y1, z1, base_position, link_lengths):
-    L1, L2, L3 = link_lengths
-    x0, y0, z0 = base_position
-
-    theta1 = np.arctan2(y1 - y0, x1 - x0)
-    x_prime = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
-    z_prime = z0 - z1 - L1
-    d = np.sqrt(x_prime**2 + z_prime**2)
-
-    if d > L2 + L3:
-        raise ValueError("Target point is unreachable")
-
-    theta2_part1 = np.arctan2(x_prime, z_prime)
-    theta2_part2 = np.arccos((L2**2 + d**2 - L3**2) / (2 * L2 * d))
-    theta2 = theta2_part1 + theta2_part2 - np.pi / 2
-
-    theta3 = np.pi - np.arccos((L3**2 + L2**2 - d**2) / (2 * L3 * L2))
-    return theta1, theta2, -theta3
-
-# Прямая кинематика
-def forward_kinematics(theta1, theta2, theta3, base_position, link_lengths):
-    L1, L2, L3 = link_lengths
-    theta1-=np.pi/2
-    rotation_z = np.array([
-        [np.cos(theta1), -np.sin(theta1), 0],
-        [np.sin(theta1), np.cos(theta1), 0],
-        [0, 0, 1]
-    ])
-    rotation_x = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta2), -np.sin(theta2)],
-        [0, np.sin(theta2), np.cos(theta2)]
-    ])
-    rotation_x2 = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta3), -np.sin(theta3)],
-        [0, np.sin(theta3), np.cos(theta3)]
-    ])
-    T1 = rotation_z @ rotation_x
-    T2 = rotation_x2
-
-    joint0 = np.array(base_position)
-    joint1 = joint0 + np.array([0, 0, -L1])
-    joint2 = joint1 + T1 @ np.array([0, L2, 0])
-    joint3 = joint2 + T1 @ T2 @ np.array([0, L3, 0])
-
-    return joint0, joint1, joint2, joint3
-
-# Анимация движения
-def animate_leg(trajectory, link_lengths):
-    x_vals, y_vals, z_vals = trajectory
+def animate_legs(LEGS):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.set_xlim(-10, 10)
@@ -214,37 +155,41 @@ def animate_leg(trajectory, link_lengths):
         targets.append(target)
 
     def update(frame):
-      i=0
-      for id in ledCoordinates:
-        
-        base_position = ledCoordinates[id]['position']
-        x0, y0, z0 = ledCoordinates[id]['endPosition']
-        x, y, z = x_vals[frame] + x0, y_vals[frame] + y0, z_vals[frame] + z0
-        theta1, theta2, theta3 = inverse_kinematics_single(x, y, z, base_position, link_lengths)
-        joints = forward_kinematics(theta1, theta2, theta3, base_position, link_lengths)
+      current_time = time.time() - start_time
+      
+      for i, id in enumerate(LEGS):
+        leg = LEGS[id]
+        leg.generate_trajectory(current_time)
+        leg.inverse_kinematics()
+        leg.forward_kinematics()
 
-        joint_x = [j[0] for j in joints]
-        joint_y = [j[1] for j in joints]
-        joint_z = [j[2] for j in joints]
+        joint_x = [j[0] for j in leg.joints]
+        joint_y = [j[1] for j in leg.joints]
+        joint_z = [j[2] for j in leg.joints]
 
         lines[i].set_data(joint_x, joint_y)
         lines[i].set_3d_properties(joint_z)
 
+        x,y,z = leg.joints[-1]
         targets[i].set_data([x], [y])
         targets[i].set_3d_properties([z])
-        i+=1
+        
 
       return lines, targets
+    
+    ani = FuncAnimation(fig, update, frames=1, interval=50, blit=False, repeat=True)
 
-    ani = FuncAnimation(fig, update, frames=len(x_vals), interval=50, blit=False, repeat=True)
     plt.show()
 
-# Базовая позиция ноги
 
+LEGS = {'L1': LEG(linkLength, l_angle_relative, [-1, 3, 0],  [-4.67423461,  3,  -3.12132034], halfPeriod, angle_trajektory),
+        'L2': LEG(linkLength, l_angle_relative, [-2, 0, 0],  [-5.67423461,  0, -3.12132034],  0,          angle_trajektory),
+        'L3': LEG(linkLength, l_angle_relative, [-1, -3, 0], [-4.67423461, -3,  -3.12132034], halfPeriod, angle_trajektory),
+        'R1': LEG(linkLength, r_angle_relative, [1, 3, 0],   [ 4.67423461,  3,  -3.12132034], 0,          angle_trajektory),
+        'R2': LEG(linkLength, r_angle_relative, [2, 0, 0],   [ 5.67423461,  0, -3.12132034],  halfPeriod, angle_trajektory),
+        'R3': LEG(linkLength, r_angle_relative, [1, -3, 0],  [ 4.67423461, -3,  -3.12132034], 0,          angle_trajektory)
+        }
 
+calculateTrajectory()
 
-# Генерация траектории
-trajectory = generate_trajectory()
-
-# Анимация
-animate_leg(trajectory, link_lengths)
+#animate_legs(LEGS)
