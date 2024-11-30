@@ -26,12 +26,16 @@ def rotationX (theta):
 
 class Meha:
     def __init__(self, position, basis):
-        self.position = position
-        self.basis = basis
+        self.posOld = position
+        self.posNew = position
+        self.basisOld = basis
+        self.basisNew = basis
         self.legs = {}
+        self.Fi_Z_Old = 0
+        self.Fi_Z_New = 0
 
     def changePosition(self, ds):
-        self.position += ds
+        self.posNew += ds
     
     def changeBasis(fi):
         pass
@@ -47,8 +51,13 @@ class Meha:
             cnf = self.legs[legId].config
             for param in cnf:
                 status+=f'\n\n{str.upper(legId)} {param}:'
-                for key in cnf[param]:
-                    status+=f'\n{offs}{key}: {np.round(cnf[param][key], 3)}'
+                if param == 'JOINTS':
+                    for key in cnf[param]:
+                        status+=f'\n{offs}{key}: {np.round(cnf[param][key]+self.posNew, 3)}'
+                else:
+                    for key in cnf[param]:
+                        status+=f'\n{offs}{key}: {np.round(cnf[param][key], 3)}'
+
         print(status)
 
 
@@ -59,6 +68,9 @@ class Meha:
     def draw(self, isAnimate = True):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlim(-10, 10)
+        ax.set_ylim(-10, 10)
+        ax.set_zlim(-10, 10)
         lines = []
         for _ in range(7):
             line, = ax.plot([], [], [], 'o-', lw=2)
@@ -66,44 +78,52 @@ class Meha:
 
         def update(frame):  
             t = isAnimate*(time.time() - start_time)
-            posOld = self.position 
-            self.position = vec3(np.cos(t)-1, np.sin(t),0)
-            dS = self.position - posOld
             
-            # np.cos(t)-1, np.sin(t),
-            # ax.set_xlim(-10+dS[0], 10+dS[0])
-            # ax.set_ylim(-10+dS[1], 10+dS[1])
-            ax.set_xlim(-10, 10)
-            ax.set_ylim(-10, 10)
-            ax.set_zlim(-10, 10)
+            self.posOld = self.posNew 
+            self.posNew = vec3(np.cos(t), np.sin(t),0)
+            dS = 0
+            dS = self.posNew - self.posOld
+
+            self.basisOld = self.basisNew
+            self.Fi_Z_Old = self.Fi_Z_New
+            dFiZ = 0
+            dFiZ = np.sin(t)*np.pi/8 - self.Fi_Z_Old
+            self.Fi_Z_New = self.Fi_Z_Old + dFiZ
+            T = rotationZ(dFiZ/4) @ rotationX(dFiZ/4)
+            dS = self.basisOld @ dS
+            self.basisNew = np.linalg.inv(T) @ self.basisOld
+
+            # ax.set_xlim(-10, 10)
+            # ax.set_ylim(-10, 10)
+            # ax.set_zlim(-10, 10)
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
             
-            x0,y0,z0 = self.position
+            x0,y0,z0 = self.posNew
             lines[0].set_data([x0], [y0])
             lines[0].set_3d_properties([z0])
-            print(dS)
+
             for i, id in enumerate(self.legs):
-                leg = self.legs[id]
-                
-                leg.move(dS)
-                
+                leg = self.legs[id]   
+                leg.move(dS, T)
                 points = {'x': [],'y': [],'z': []}
-                for joint in leg.JOINTS:
-                    x,y,z = joint + self.position
-                    print(x,y,z)
+                for j, joint in enumerate(leg.JOINTS):
+                    x,y,z = self.posNew + np.linalg.inv(self.basisNew)@joint
                     points['x'].append(x)
                     points['y'].append(y)
                     points['z'].append(z)
+                    if id=='R1' and j==3:
+                        print(frame,':',x,y,z)
                 
-                self.updateStatus()
+                
+                # self.updateStatus()
                 lines[i+1].set_data(points['x'], points['y'])
                 lines[i+1].set_3d_properties(points['z'])
                 
             return lines
 
-        ani = FuncAnimation(fig, update, frames=1, interval=50, blit=False, repeat=True)
+        ani = FuncAnimation(fig, update, frames=10, interval=50, blit=False, repeat=True)
         plt.show()
         
 
@@ -142,8 +162,7 @@ class LEG():
         for i, paramId in enumerate(self.config[param]):
             self.config[param][paramId] = args[i]
 
-    def setAngles(self,a1,a2,a3):
-        
+    def setAngles(self,a1,a2,a3): 
         self.T10 = rotationZ(a1)
         self.T21 = rotationZ(a2) 
         self.T32 = rotationZ(a3)
@@ -161,18 +180,20 @@ class LEG():
         
         self.updateParameter('JOINTS',j0,j1,j2,j3)
     
-    def move(self, dS):
+    def move(self, dS, T):
         self.check_Leg_On_Earth()
         if self.isEarth: 
-            self.moveEarth(dS)
+            self.moveEarth(dS,T)
         else: 
             self.moveAir(dS)
 
     def check_Leg_On_Earth(self):
         self.isEarth = True
 
-    def moveEarth(self, dS):
-        vec = (self.BaseT10)@(self.JOINTS[3]-self.JOINTS[0]-dS)
+    def moveEarth(self, dS, T):
+
+        a = self.JOINTS[0]
+        vec = (self.BaseT10)@(np.linalg.inv(T) @ (self.JOINTS[3] - dS) - a)
         a1,a2,a3 = self.inverseKinematics(vec) 
         self.setAngles(a1,a2,a3)
         self.calcJoints()
@@ -211,11 +232,5 @@ meha.addLeg('L3', joint_start = [-3, 1, 0],  angles_leg = [-np.pi/6, -np.pi/6, n
 meha.draw(True)
 
 
-
+# 4 : 5.049038105676669 -4.54903810567662 -3.098076211353371
 # meha.getStatus()
-
-
-
-
-
-
