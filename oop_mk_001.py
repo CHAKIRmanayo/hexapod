@@ -18,28 +18,30 @@ def rotationZ (theta):
 
 def rotationX (theta):
     return np.array([
-            [1, 0, 0],
-            [0, np.cos(theta), -np.sin(theta)],
-            [0, np.sin(theta), np.cos(theta)]
+        [1, 0, 0],
+        [0, np.cos(theta), -np.sin(theta)],
+        [0, np.sin(theta), np.cos(theta)]
         ])
 
+def rotationY (theta):
+    return np.array([
+        [np.cos(theta), 0, np.sin(theta)],
+        [0, 1, 0],
+        [-np.sin(theta), 0, np.cos(theta)], 
+        ])
+# 5.049038105677278 -4.5490381056752165 -3.0980762113553437
+# 5.049038105676658 -4.549038105676655 -3.0980762113533182
 
 class Meha:
-    def __init__(self, position, basis):
-        self.posOld = position
-        self.posNew = position
-        self.basisOld = basis
-        self.basisNew = basis
+    def __init__(self, position, matrix):
+        self.OldPosition = position
+        self.NewPosition = position
+        self.OldMatrix = matrix
+        self.NewMatrix = matrix
+        self.OldFi = 0
+        self.NewFi = 0
         self.legs = {}
-        self.Fi_Z_Old = 0
-        self.Fi_Z_New = 0
-
-    def changePosition(self, ds):
-        self.posNew += ds
-    
-    def changeBasis(fi):
-        pass
-    
+        
     def addLeg(self, key, joint_start, angles_leg):
         self.legs[key] = LEG(self, joint_start, angles_leg)
 
@@ -53,11 +55,10 @@ class Meha:
                 status+=f'\n\n{str.upper(legId)} {param}:'
                 if param == 'JOINTS':
                     for key in cnf[param]:
-                        status+=f'\n{offs}{key}: {np.round(cnf[param][key]+self.posNew, 3)}'
+                        status+=f'\n{offs}{key}: {np.round(cnf[param][key]+self.NewPosition, 3)}'
                 else:
                     for key in cnf[param]:
                         status+=f'\n{offs}{key}: {np.round(cnf[param][key], 3)}'
-
         print(status)
 
 
@@ -71,52 +72,46 @@ class Meha:
         ax.set_xlim(-10, 10)
         ax.set_ylim(-10, 10)
         ax.set_zlim(-10, 10)
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
         lines = []
         for _ in range(7):
             line, = ax.plot([], [], [], 'o-', lw=2)
             lines.append(line)
+        start_time = time.time() + 0.23
 
         def update(frame):  
             t = isAnimate*(time.time() - start_time)
             
-            self.posOld = self.posNew 
-            self.posNew = vec3(np.cos(t), np.sin(t),0)
-            dS = 0
-            dS = self.posNew - self.posOld
-
-            self.basisOld = self.basisNew
-            self.Fi_Z_Old = self.Fi_Z_New
-            dFiZ = 0
-            dFiZ = np.sin(t)*np.pi/8 - self.Fi_Z_Old
-            self.Fi_Z_New = self.Fi_Z_Old + dFiZ
-            T = rotationZ(dFiZ/4) @ rotationX(dFiZ/4)
-            dS = self.basisOld @ dS
-            self.basisNew = np.linalg.inv(T) @ self.basisOld
-
-            # ax.set_xlim(-10, 10)
-            # ax.set_ylim(-10, 10)
-            # ax.set_zlim(-10, 10)
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
+            self.OldPosition = self.NewPosition 
+            self.NewPosition = 0.6*vec3(np.cos(t), np.sin(t),0)
+            dS = self.NewPosition - self.OldPosition
+            dS = np.linalg.inv(self.OldMatrix) @ dS
+ 
+            self.OldMatrix = self.NewMatrix
+            self.OldFi = self.NewFi
+            dFi = np.sin(t)*np.pi/8 - self.OldFi
+            self.NewFi = self.OldFi + dFi
+            dT = rotationX(dFi/2)     
+            self.NewMatrix = self.OldMatrix @ dT
             
-            x0,y0,z0 = self.posNew
+            x0,y0,z0 = self.NewPosition
             lines[0].set_data([x0], [y0])
             lines[0].set_3d_properties([z0])
 
             for i, id in enumerate(self.legs):
                 leg = self.legs[id]   
-                leg.move(dS, T)
+                leg.move(dS, dT)
                 points = {'x': [],'y': [],'z': []}
                 for j, joint in enumerate(leg.JOINTS):
-                    x,y,z = self.posNew + np.linalg.inv(self.basisNew)@joint
+                    x,y,z = self.NewPosition + self.NewMatrix @ joint
                     points['x'].append(x)
                     points['y'].append(y)
                     points['z'].append(z)
                     if id=='R1' and j==3:
                         print(frame,':',x,y,z)
-                
-                
+ 
                 # self.updateStatus()
                 lines[i+1].set_data(points['x'], points['y'])
                 lines[i+1].set_3d_properties(points['z'])
