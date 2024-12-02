@@ -18,24 +18,30 @@ def rotationZ (theta):
 
 def rotationX (theta):
     return np.array([
-            [1, 0, 0],
-            [0, np.cos(theta), -np.sin(theta)],
-            [0, np.sin(theta), np.cos(theta)]
+        [1, 0, 0],
+        [0, np.cos(theta), -np.sin(theta)],
+        [0, np.sin(theta), np.cos(theta)]
         ])
 
+def rotationY (theta):
+    return np.array([
+        [np.cos(theta), 0, np.sin(theta)],
+        [0, 1, 0],
+        [-np.sin(theta), 0, np.cos(theta)], 
+        ])
+# 5.049038105677278 -4.5490381056752165 -3.0980762113553437
+# 5.049038105676658 -4.549038105676655 -3.0980762113533182
 
 class Meha:
-    def __init__(self, position, basis):
-        self.position = position
-        self.basis = basis
+    def __init__(self, position, matrix):
+        self.OldPosition = position
+        self.NewPosition = position
+        self.OldMatrix = matrix
+        self.NewMatrix = matrix
+        self.OldFi = 0
+        self.NewFi = 0
         self.legs = {}
-
-    def changePosition(self, ds):
-        self.position += ds
-    
-    def changeBasis(fi):
-        pass
-    
+        
     def addLeg(self, key, joint_start, angles_leg):
         self.legs[key] = LEG(self, joint_start, angles_leg)
 
@@ -47,8 +53,12 @@ class Meha:
             cnf = self.legs[legId].config
             for param in cnf:
                 status+=f'\n\n{str.upper(legId)} {param}:'
-                for key in cnf[param]:
-                    status+=f'\n{offs}{key}: {np.round(cnf[param][key], 3)}'
+                if param == 'JOINTS':
+                    for key in cnf[param]:
+                        status+=f'\n{offs}{key}: {np.round(cnf[param][key]+self.NewPosition, 3)}'
+                else:
+                    for key in cnf[param]:
+                        status+=f'\n{offs}{key}: {np.round(cnf[param][key], 3)}'
         print(status)
 
 
@@ -59,51 +69,56 @@ class Meha:
     def draw(self, isAnimate = True):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlim(-10, 10)
+        ax.set_ylim(-10, 10)
+        ax.set_zlim(-10, 10)
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
         lines = []
         for _ in range(7):
             line, = ax.plot([], [], [], 'o-', lw=2)
             lines.append(line)
+        start_time = time.time() + 0.23
 
         def update(frame):  
             t = isAnimate*(time.time() - start_time)
-            posOld = self.position 
-            self.position = vec3(np.cos(t)-1, np.sin(t),0)
-            dS = self.position - posOld
             
-            # np.cos(t)-1, np.sin(t),
-            # ax.set_xlim(-10+dS[0], 10+dS[0])
-            # ax.set_ylim(-10+dS[1], 10+dS[1])
-            ax.set_xlim(-10, 10)
-            ax.set_ylim(-10, 10)
-            ax.set_zlim(-10, 10)
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
+            self.OldPosition = self.NewPosition 
+            self.NewPosition = 0.6*vec3(np.cos(t), np.sin(t),0)
+            dS = self.NewPosition - self.OldPosition
+            dS = np.linalg.inv(self.OldMatrix) @ dS
+ 
+            self.OldMatrix = self.NewMatrix
+            self.OldFi = self.NewFi
+            dFi = np.sin(t)*np.pi/8 - self.OldFi
+            self.NewFi = self.OldFi + dFi
+            dT = rotationX(dFi/2)     
+            self.NewMatrix = self.OldMatrix @ dT
             
-            x0,y0,z0 = self.position
+            x0,y0,z0 = self.NewPosition
             lines[0].set_data([x0], [y0])
             lines[0].set_3d_properties([z0])
-            print(dS)
+
             for i, id in enumerate(self.legs):
-                leg = self.legs[id]
-                
-                leg.move(dS)
-                
+                leg = self.legs[id]   
+                leg.move(dS, dT)
                 points = {'x': [],'y': [],'z': []}
-                for joint in leg.JOINTS:
-                    x,y,z = joint + self.position
-                    print(x,y,z)
+                for j, joint in enumerate(leg.JOINTS):
+                    x,y,z = self.NewPosition + self.NewMatrix @ joint
                     points['x'].append(x)
                     points['y'].append(y)
                     points['z'].append(z)
-                
-                self.updateStatus()
+                    if id=='R1' and j==3:
+                        print(frame,':',x,y,z)
+ 
+                # self.updateStatus()
                 lines[i+1].set_data(points['x'], points['y'])
                 lines[i+1].set_3d_properties(points['z'])
                 
             return lines
 
-        ani = FuncAnimation(fig, update, frames=1, interval=50, blit=False, repeat=True)
+        ani = FuncAnimation(fig, update, frames=10, interval=50, blit=False, repeat=True)
         plt.show()
         
 
@@ -142,8 +157,7 @@ class LEG():
         for i, paramId in enumerate(self.config[param]):
             self.config[param][paramId] = args[i]
 
-    def setAngles(self,a1,a2,a3):
-        
+    def setAngles(self,a1,a2,a3): 
         self.T10 = rotationZ(a1)
         self.T21 = rotationZ(a2) 
         self.T32 = rotationZ(a3)
@@ -161,18 +175,20 @@ class LEG():
         
         self.updateParameter('JOINTS',j0,j1,j2,j3)
     
-    def move(self, dS):
+    def move(self, dS, T):
         self.check_Leg_On_Earth()
         if self.isEarth: 
-            self.moveEarth(dS)
+            self.moveEarth(dS,T)
         else: 
             self.moveAir(dS)
 
     def check_Leg_On_Earth(self):
         self.isEarth = True
 
-    def moveEarth(self, dS):
-        vec = (self.BaseT10)@(self.JOINTS[3]-self.JOINTS[0]-dS)
+    def moveEarth(self, dS, T):
+
+        a = self.JOINTS[0]
+        vec = (self.BaseT10)@(np.linalg.inv(T) @ (self.JOINTS[3] - dS) - a)
         a1,a2,a3 = self.inverseKinematics(vec) 
         self.setAngles(a1,a2,a3)
         self.calcJoints()
@@ -211,11 +227,5 @@ meha.addLeg('L3', joint_start = [-3, 1, 0],  angles_leg = [-np.pi/6, -np.pi/6, n
 meha.draw(True)
 
 
-
+# 4 : 5.049038105676669 -4.54903810567662 -3.098076211353371
 # meha.getStatus()
-
-
-
-
-
-
